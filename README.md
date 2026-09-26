@@ -39,10 +39,10 @@ hashids.decode_hex('kRNrpKlJ')   # 'deadbeef'
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `salt` | `None` | Changes the output for the same input |
+| `salt` | `None` | Changes the output for the same input. Defaults to no salt |
 | `min_length` | `0` | Minimum hash length — hashes may come out longer |
-| `alphabet` | `None` | Custom alphabet, at least 16 unique ASCII characters, no spaces |
-| `separators` | `None` | Custom separator characters, must be part of the alphabet |
+| `alphabet` | `None` | Custom alphabet, at least 16 unique ASCII characters, no spaces. Defaults to the standard 62-character Hashids alphabet |
+| `separators` | `None` | Custom separator characters, must be part of the alphabet. Defaults to `cfhistuCFHISTU` |
 
 ## API
 
@@ -55,9 +55,10 @@ hashids.decode_hex('kRNrpKlJ')   # 'deadbeef'
 | `encode_many(batches)` | `list[str]` | Encodes many sequences in one call — each item is what the list form of `encode` takes. Bulk workloads pay the Python/Rust boundary once. |
 | `decode_many(hashids)` | `tuple[tuple[int, ...], ...]` | Decodes many hashids in one call. Raises `ValueError` on the first invalid one. |
 
-**Coming from the Python `hashids` package?** `from harsh_ids import Hashids`
-works too — `Hashids` is the same class as `Harsh` (`Hashids is Harsh`), with
-the same constructor and methods. The module also exposes `__version__`.
+Using the Python `hashids` package today? `Hashids` is exported as an alias for
+`Harsh`, so swapping the import is enough. The main difference is error
+handling: `hashids` returns `''` or `()` on bad input, this package raises. If
+your code depends on those empty returns, wrap the calls in a `try`.
 
 ## Notes
 
@@ -76,9 +77,10 @@ the same constructor and methods. The module also exposes `__version__`.
   on the GIL-held fast path. For bulk work, `encode_many`/`decode_many` pay
   the Python/Rust boundary once and run the whole batch with the GIL
   released. Instances are shared safely across threads either way.
-- **No profanity by default** — the seven default separators (`c`, `f`, `h`,
-  `i`, `s`, `t`, `u`) are held out of the alphabet and never placed next to each
-  other, so ids cannot spell the English curse words that depend on them.
+- **No profanity by default** — the 14 default separators (`cfhistuCFHISTU`)
+  are held out of the alphabet and never placed next to each other. English
+  curse words are built from the lowercase seven (`cfhistu`), so ids can't
+  spell them.
 
 ## Development
 
