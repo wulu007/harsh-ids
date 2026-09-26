@@ -6,6 +6,7 @@
 [![Python][python-badge]][pypi-link]
 [![License][license-badge]][license-link]
 [![Built with PyO3][pyo3-badge]][pyo3-link]
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/wulu007/harsh-ids?utm_source=badge)
 
 **Hashids in Rust, for Python.** Encode integers into YouTube-like short ids:
 sequential ids stop looking sequential, and several numbers pack into a single id.

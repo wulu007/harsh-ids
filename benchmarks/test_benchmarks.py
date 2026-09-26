@@ -95,6 +95,30 @@ def test_decode_short(benchmark, hashids):
     )
 
 
+def test_construct(benchmark):
+    # Builder setup: alphabet/separator shuffling driven by the salt.
+    benchmark(lambda: Harsh(salt=SALT, min_length=8))
+
+
+def test_encode_hex(benchmark, hashids):
+    benchmark.pedantic(
+        lambda: hashids.encode_hex("507f1f77bcf86cd799439011"),
+        iterations=SMALL_CALLS_PER_ROUND,
+        rounds=50,
+        warmup_rounds=5,
+    )
+
+
+def test_decode_hex(benchmark, hashids):
+    hashid = hashids.encode_hex("507f1f77bcf86cd799439011")
+    benchmark.pedantic(
+        lambda: hashids.decode_hex(hashid),
+        iterations=SMALL_CALLS_PER_ROUND,
+        rounds=50,
+        warmup_rounds=5,
+    )
+
+
 def test_encode_large(benchmark, hashids):
     # ~200µs per call: timer quantization is negligible here.
     numbers = list(range(1000))
