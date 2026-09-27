@@ -122,10 +122,13 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Create release and attach wheels
+        # No checkout in this workflow, so gh must be told the repo
+        # explicitly and the tag is verified via API in an earlier step
+        # (that is why --verify-tag is not used here).
         if: steps.release.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.resolve.outputs.tag }}
         run: |
-          gh release create "$TAG" --verify-tag --generate-notes
-          gh release upload "$TAG" wheels-*/* --clobber
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --generate-notes
+          gh release upload "$TAG" wheels-*/* --repo "$GITHUB_REPOSITORY" --clobber
