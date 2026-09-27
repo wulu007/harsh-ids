@@ -1,0 +1,131 @@
+name: GitHub Release
+
+# Creates a GitHub release with all built wheels attached. Two trigger modes:
+#
+# - automatic: after a CI run for a v* tag push completes successfully, gated
+#   on the CI run's "Release" job (which performs the PyPI upload) succeeding;
+# - manual: Actions -> GitHub Release -> Run workflow, passing a tag (e.g.
+#   v0.1.0). Wheels are taken from that tag's latest successful CI run, so a
+#   release can be backfilled without rebuilding.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release, e.g. v0.1.0"
+        required: true
+        type: string
+
+jobs:
+  gh-release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    permissions:
+      # Read runs, jobs and artifacts
+      actions: read
+      # Create the release
+      contents: write
+    steps:
+      - name: Resolve tag and source run
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          WR_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WR_EVENT: ${{ github.event.workflow_run.event }}
+          WR_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WR_RUN_ID: ${{ github.event.workflow_run.id }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+            RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow CI \
+              --branch "$TAG" --status success \
+              --json databaseId --jq '.[0].databaseId')
+            if [ -z "$RUN_ID" ]; then
+              echo "::error::no successful CI run found for tag $TAG"
+              exit 1
+            fi
+            echo "manual release for $TAG from CI run $RUN_ID"
+          else
+            # Automatic mode: only successful v* tag pushes qualify.
+            if [ "$WR_CONCLUSION" != "success" ] || [ "$WR_EVENT" != "push" ]; then
+              echo "CI run not a successful push, skipping"
+              exit 0
+            fi
+            case "$WR_BRANCH" in
+              v*) ;;
+              *) echo "'$WR_BRANCH' is not a v* tag, skipping"; exit 0 ;;
+            esac
+            TAG="$WR_BRANCH"
+            RUN_ID="$WR_RUN_ID"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the ref is a tag
+        if: steps.resolve.outputs.run_id != ''
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ steps.resolve.outputs.tag }}
+        run: |
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$REF" > /dev/null 2>&1; then
+            echo "is_tag=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_tag=false" >> "$GITHUB_OUTPUT"
+            echo "'$REF' is not a tag, skipping"
+          fi
+
+      - name: Verify the Release job succeeded
+        # Gates on the source run's "Release" job, which contains the PyPI
+        # publish: no successful upload, no GitHub release. The job is
+        # matched by name — keep it in sync with the `name: Release` in
+        # CI.yml; a missing job is treated as "skip".
+        if: steps.tag.outputs.is_tag == 'true'
+        id: release_job
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.resolve.outputs.run_id }}
+        run: |
+          conclusion=$(gh api \
+            "repos/${{ github.repository }}/actions/runs/$RUN_ID/jobs" \
+            --paginate --jq '.jobs[] | select(.name == "Release") | .conclusion' \
+            | tail -1)
+          echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+          if [ "$conclusion" != "success" ]; then
+            echo "Release job not successful (conclusion: ${conclusion:-not found}), skipping"
+          fi
+
+      - name: Skip if the release already exists
+        if: steps.release_job.outputs.conclusion == 'success'
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "release $TAG already exists, skipping"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download build artifacts
+        if: steps.release.outputs.exists == 'false'
+        uses: actions/download-artifact@v7
+        with:
+          run-id: ${{ steps.resolve.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Create release and attach wheels
+        if: steps.release.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          gh release create "$TAG" --verify-tag --generate-notes
+          gh release upload "$TAG" wheels-*/* --clobber
